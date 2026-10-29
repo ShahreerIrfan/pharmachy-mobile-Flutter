@@ -1,0 +1,22 @@
+# Flutter & Dart build and cache
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Symbols and coverage
+*.symbols
+coverage/
