@@ -69,7 +69,8 @@ void main() {
       binding.platformDispatcher.clearAllTestValues();
     });
 
-    testWidgets('1. Loaded Dashboard visual layout renders fixed 390x844 bounds and exact Decimal BDT',
+    testWidgets(
+        '1. Loaded Dashboard visual layout renders fixed 390x844 bounds and exact Decimal BDT',
         (tester) async {
       setStandardMobileViewport(tester);
       await tester.pumpWidget(createHarnessWidget());
@@ -87,25 +88,32 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('2. Offline State renders persistent warning watermark banner with gold theme',
+    testWidgets(
+        '2. Offline State renders persistent warning watermark banner with gold theme',
         (tester) async {
       setStandardMobileViewport(tester);
       await tester.pumpWidget(createHarnessWidget(isOffline: true));
       await tester.pumpAndSettle();
 
-      expect(find.text('Working Offline - Showing Cached Data'), findsOneWidget);
+      expect(
+          find.text('Working Offline - Showing Cached Data'), findsOneWidget);
       expect(find.byIcon(CupertinoIcons.wifi_slash), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('3. Permission Denied state displays strict access restricted alert for Cashier',
+    testWidgets(
+        '3. Permission Denied state displays strict access restricted alert for Cashier',
         (tester) async {
       setStandardMobileViewport(tester);
-      await tester.pumpWidget(createHarnessWidget(session: sampleCashierSession));
+      await tester
+          .pumpWidget(createHarnessWidget(session: sampleCashierSession));
       await tester.pumpAndSettle();
 
       expect(find.text('Permission Denied'), findsOneWidget);
-      expect(find.textContaining('Cashier role is not authorized to access the Mobile Manager App'), findsOneWidget);
+      expect(
+          find.textContaining(
+              'Cashier role is not authorized to access the Mobile Manager App'),
+          findsOneWidget);
       expect(find.byIcon(CupertinoIcons.lock_shield_fill), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -113,38 +121,49 @@ void main() {
     testWidgets('4. Empty Dashboard state renders clean zero-data placeholder',
         (tester) async {
       setStandardMobileViewport(tester);
-      await tester.pumpWidget(createHarnessWidget(forcedState: DashboardViewState.empty, kpi: null));
+      await tester.pumpWidget(createHarnessWidget(
+          forcedState: DashboardViewState.empty, kpi: null));
       await tester.pumpAndSettle();
 
       expect(find.text('No Transactions Recorded Today'), findsOneWidget);
-      expect(find.text('Sales and orders for this branch will appear here in real time.'), findsOneWidget);
+      expect(
+          find.text(
+              'Sales and orders for this branch will appear here in real time.'),
+          findsOneWidget);
       expect(find.byIcon(CupertinoIcons.tray_fill), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('5. Error state renders actionable retry button and error banner',
+    testWidgets(
+        '5. Error state renders actionable retry button and error banner',
         (tester) async {
       setStandardMobileViewport(tester);
-      await tester.pumpWidget(createHarnessWidget(forcedState: DashboardViewState.error, kpi: null));
+      await tester.pumpWidget(createHarnessWidget(
+          forcedState: DashboardViewState.error, kpi: null));
       await tester.pumpAndSettle();
 
       expect(find.text('Failed to Load Dashboard'), findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
-      expect(find.byIcon(CupertinoIcons.exclamationmark_circle_fill), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.exclamationmark_circle_fill),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('6. Loading state renders clean activity indicator without overflow',
+    testWidgets(
+        '6. Loading state renders clean activity indicator without overflow',
         (tester) async {
       setStandardMobileViewport(tester);
-      await tester.pumpWidget(createHarnessWidget(forcedState: DashboardViewState.loading, kpi: null));
+      await tester.pumpWidget(createHarnessWidget(
+          forcedState: DashboardViewState.loading, kpi: null));
       await tester.pump();
 
       expect(find.byType(CupertinoActivityIndicator), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    test('7. Mobile codebase strictly avoids forbidden Unicode emojis in UI strings (ADR-0009)', () {
+    test(
+        '7. Mobile codebase strictly avoids forbidden Unicode emojis in UI strings (ADR-0009)',
+        () {
       final libDir = Directory('lib');
       expect(libDir.existsSync(), isTrue);
 
@@ -162,7 +181,8 @@ void main() {
         final content = file.readAsStringSync();
         final matches = emojiPattern.allMatches(content);
         expect(matches.isEmpty, isTrue,
-            reason: 'Forbidden emoji found in ${file.path}: ${matches.map((m) => m.group(0))}');
+            reason:
+                'Forbidden emoji found in ${file.path}: ${matches.map((m) => m.group(0))}');
       }
     });
   });
