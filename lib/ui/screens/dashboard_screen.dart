@@ -97,16 +97,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       padding: const EdgeInsets.symmetric(
           vertical: 6.0, horizontal: AppTokens.space16),
       child: const Row(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(CupertinoIcons.wifi_slash, size: 14.0, color: Colors.white),
           SizedBox(width: AppTokens.space8),
-          Text(
-            'Working Offline - Showing Cached Data',
-            style: TextStyle(
-                color: Colors.white,
-                fontSize: 12.0,
-                fontWeight: FontWeight.bold),
+          Flexible(
+            child: Text(
+              'Working Offline - Showing Cached Data',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.0,
+                  fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),

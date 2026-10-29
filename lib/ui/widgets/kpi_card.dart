@@ -35,7 +35,14 @@ class KpiCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(title, style: AppTokens.captionMuted),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTokens.captionMuted,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: AppTokens.space8),
               Icon(icon, color: iconColor, size: 20.0),
             ],
           ),
