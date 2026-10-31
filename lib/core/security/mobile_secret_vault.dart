@@ -23,4 +23,3 @@ class MobileSecretVault {
     return '${val.substring(0, 4)}-****-${val.substring(val.length - 4)}';
   }
 }
-
