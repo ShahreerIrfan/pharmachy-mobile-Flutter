@@ -123,3 +123,4 @@ class MobileTenantOnboardingWizardClient {
     return '/api/v2/platform/onboarding-wizard/$cleanId/';
   }
 }
+
