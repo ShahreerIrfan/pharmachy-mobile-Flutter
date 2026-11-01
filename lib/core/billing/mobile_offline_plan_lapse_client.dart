@@ -165,3 +165,4 @@ class MobileHoldQueueSummary {
 
   bool get hasPendingItems => pendingCount > 0;
 }
+
