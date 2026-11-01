@@ -186,3 +186,4 @@ class MobileProratedUpgradeModel {
     'applied_entitlement_id': appliedEntitlementId,
   };
 }
+
