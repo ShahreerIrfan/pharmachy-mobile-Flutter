@@ -110,6 +110,16 @@ class MobileFlexibleMedicinePayloadClient {
       'is_sterile',
       'gauge_size',
     },
+    'SYRUP_SUSPENSION': {
+      'bottle_size_ml',
+      'is_dry_powder',
+      'reconstituted_expiry_days',
+    },
+    'INJECTION_INFUSION': {
+      'vial_volume_ml',
+      'is_lyophilized',
+      'diluent_required',
+    },
   };
 
   static const Map<String, Set<String>> mandatoryFormSpecific = {
@@ -240,6 +250,44 @@ class MobileFlexibleMedicinePayloadClient {
             errorCode: 'ERR_MRP_BELOW_COST',
             messageEn: 'MRP ($mrp) cannot be less than purchase cost ($cost).',
             messageBn: 'খুচরা মূল্য ক্রয়মূল্যের চেয়ে কম হতে পারে না।',
+          ));
+        }
+      } catch (_) {}
+    }
+
+    // 6. Packaging Math Invariant
+    final pObj = attributes['pieces_per_strip'];
+    final sObj = attributes['strips_per_pack'];
+    final tObj = attributes['total_pieces_per_pack'];
+    if (pObj != null && sObj != null && tObj != null) {
+      try {
+        final p = int.parse(pObj.toString());
+        final s = int.parse(sObj.toString());
+        final t = int.parse(tObj.toString());
+        if (p > 0 && s > 0 && t != (p * s)) {
+          errors.add(PayloadFieldError(
+            field: 'total_pieces_per_pack',
+            errorCode: 'ERR_DIMENSION_MISMATCH',
+            messageEn: 'Total pieces ($t) does not equal pieces ($p) * strips ($s) = ${p * s}.',
+            messageBn: 'প্যাকের মোট পিস ও স্ট্রিপের হিসাবের গরমিল।',
+          ));
+        }
+      } catch (_) {}
+    }
+
+    // 7. Storage Temperature Invariant
+    final minTObj = attributes['storage_temperature_celsius_min'];
+    final maxTObj = attributes['storage_temperature_celsius_max'];
+    if (minTObj != null && maxTObj != null) {
+      try {
+        final minT = double.parse(minTObj.toString());
+        final maxT = double.parse(maxTObj.toString());
+        if (minT > maxT) {
+          errors.add(PayloadFieldError(
+            field: 'storage_temperature_celsius_min',
+            errorCode: 'ERR_INVALID_TEMPERATURE_RANGE',
+            messageEn: 'Minimum storage temperature cannot exceed maximum storage temperature.',
+            messageBn: 'সর্বনিম্ন তাপমাত্রা সর্বোচ্চ তাপমাত্রার চেয়ে বেশি হতে পারে না।',
           ));
         }
       } catch (_) {}
