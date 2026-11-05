@@ -1,12 +1,12 @@
 // mobile_supplier_organization_client_test.dart
-// Architecture Decision: ADR-0181 (P181).
+// Architecture Decision: ADR-0181 (P181) & ADR-0182 (P182).
 // Phase 10: Suppliers, Purchase Orders & Supply Chain.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pharmacy_mobile_manager/core/procurement/mobile_supplier_organization_client.dart';
 
 void main() {
-  group('MobileSupplierOrganizationClient Tests (P181)', () {
+  group('MobileSupplierOrganizationClient Tests (P181 & P182)', () {
     late MobileSupplierOrganizationClient managerClient;
     late MobileSupplierOrganizationClient cashierClient;
     late MobileSupplierOrganizationClient foreignClient;
@@ -14,6 +14,7 @@ void main() {
     setUp(() {
       final sharedSuppliers = <String, MobileSupplierOrganization>{};
       final sharedLedger = <MobileSupplierLedgerEntry>[];
+      final sharedContacts = <String, MobileSupplierContactPerson>{};
 
       managerClient = MobileSupplierOrganizationClient(
         tenantId: 'tenant-evercare',
@@ -22,6 +23,7 @@ void main() {
         userId: 'usr-mgr-1',
         initialSuppliers: sharedSuppliers,
         initialLedger: sharedLedger,
+        initialContacts: sharedContacts,
       );
 
       cashierClient = MobileSupplierOrganizationClient(
@@ -31,6 +33,7 @@ void main() {
         userId: 'usr-csh-1',
         initialSuppliers: sharedSuppliers,
         initialLedger: sharedLedger,
+        initialContacts: sharedContacts,
       );
 
       foreignClient = MobileSupplierOrganizationClient(
@@ -40,6 +43,7 @@ void main() {
         userId: 'usr-mgr-2',
         initialSuppliers: sharedSuppliers,
         initialLedger: sharedLedger,
+        initialContacts: sharedContacts,
       );
     });
 
@@ -193,6 +197,94 @@ void main() {
       // Foreign tenant cannot access supplier
       expect(
         () => foreignClient.getSupplier(supplier.supplierId),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test(
+        'Test 5: Multiple contact persons and atomic primary representative reassignment',
+        () {
+      final supplier = managerClient.createSupplier(
+        name: 'Healthcare Pharma Depot',
+        legalName: 'Healthcare Ltd',
+      );
+
+      // Contact 1: Sales rep (set primary)
+      final c1 = managerClient.createSupplierContact(
+        supplierId: supplier.supplierId,
+        name: 'Md. Anisur Rahman',
+        designation: 'MIO / Territory Officer',
+        role: 'SALES_REPRESENTATIVE',
+        phone: '+8801711334455',
+        preferredCommunicationMethod: 'WHATSAPP',
+        isPrimary: true,
+      );
+      expect(c1.isPrimary, isTrue);
+      expect(c1.preferredCommunicationMethod, equals('WHATSAPP'));
+
+      // Contact 2: Depot manager (set primary)
+      final c2 = managerClient.createSupplierContact(
+        supplierId: supplier.supplierId,
+        name: 'Tariqul Islam',
+        designation: 'Depot Manager',
+        role: 'DEPOT_MANAGER',
+        phone: '+8801811445566',
+        preferredCommunicationMethod: 'PHONE',
+        isPrimary: true,
+      );
+      expect(c2.isPrimary, isTrue);
+
+      // c1 should now be un-set as primary
+      final c1Refreshed = managerClient.getSupplierContact(c1.contactId);
+      expect(c1Refreshed.isPrimary, isFalse);
+
+      // List contacts
+      final contacts =
+          managerClient.listSupplierContacts(supplier.supplierId);
+      expect(contacts.length, equals(2));
+      expect(contacts.first.contactId, equals(c2.contactId)); // Primary first
+
+      // Update contact
+      managerClient.updateSupplierContact(
+        contactId: c1.contactId,
+        phone: '+8801799887766',
+        role: 'ORDER_BOOKER',
+      );
+      expect(c1Refreshed.phone, equals('+8801799887766'));
+      expect(c1Refreshed.role, equals('ORDER_BOOKER'));
+
+      // Archive contact
+      managerClient.archiveSupplierContact(c1.contactId);
+      expect(c1Refreshed.isActive, isFalse);
+    });
+
+    test('Test 6: Contact persons RBAC and cross-tenant isolation enforcement',
+        () {
+      final supplier = managerClient.createSupplier(
+        name: 'Popular Pharma Depot',
+        legalName: 'Popular Ltd',
+      );
+
+      // Cashier cannot create contact
+      expect(
+        () => cashierClient.createSupplierContact(
+          supplierId: supplier.supplierId,
+          name: 'Contact Staff',
+          phone: '01700000000',
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      // Create contact under manager
+      final contact = managerClient.createSupplierContact(
+        supplierId: supplier.supplierId,
+        name: 'Authorized Staff',
+        phone: '01711111111',
+      );
+
+      // Foreign tenant cannot access contact
+      expect(
+        () => foreignClient.getSupplierContact(contact.contactId),
         throwsA(isA<StateError>()),
       );
     });

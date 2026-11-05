@@ -1,9 +1,9 @@
 // mobile_supplier_organization_client.dart
-// Architecture Decision: ADR-0181 (P181).
+// Architecture Decision: ADR-0181 (P181) & ADR-0182 (P182).
 // Phase 10: Suppliers, Purchase Orders & Supply Chain.
 //
 // Flutter mobile client governing tenant-scoped supplier organizations,
-// legal identity, NBR TIN/BIN credentials, accounts payable ledger tracking,
+// legal identity, NBR TIN/BIN credentials, contact persons, AP ledger tracking,
 // and proof of authentic origin verification.
 
 class MobileSupplierOrganization {
@@ -102,6 +102,60 @@ class MobileSupplierOrganization {
       };
 }
 
+class MobileSupplierContactPerson {
+  final String contactId;
+  final String tenantId;
+  final String supplierId;
+  String name;
+  String nameBn;
+  String designation;
+  String role;
+  String phone;
+  String alternatePhone;
+  String email;
+  String preferredCommunicationMethod;
+  bool isPrimary;
+  bool isActive;
+  String notes;
+  final DateTime createdAt;
+
+  MobileSupplierContactPerson({
+    required this.contactId,
+    required this.tenantId,
+    required this.supplierId,
+    required this.name,
+    this.nameBn = '',
+    this.designation = '',
+    this.role = 'SALES_REPRESENTATIVE',
+    required this.phone,
+    this.alternatePhone = '',
+    this.email = '',
+    this.preferredCommunicationMethod = 'PHONE',
+    this.isPrimary = false,
+    this.isActive = true,
+    this.notes = '',
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'contact_id': contactId,
+        'tenant_id': tenantId,
+        'supplier_id': supplierId,
+        'name': name,
+        'name_bn': nameBn,
+        'designation': designation,
+        'role': role,
+        'phone': phone,
+        'alternate_phone': alternatePhone,
+        'email': email,
+        'preferred_communication_method': preferredCommunicationMethod,
+        'is_primary': isPrimary,
+        'is_active': isActive,
+        'notes': notes,
+        'created_at': createdAt.toIso8601String(),
+      };
+}
+
 class MobileSupplierLedgerEntry {
   final String postingId;
   final String tenantId;
@@ -155,6 +209,7 @@ class MobileSupplierOrganizationClient {
   final bool isOffline;
   final Map<String, MobileSupplierOrganization> _supplierStore;
   final List<MobileSupplierLedgerEntry> _ledgerStore;
+  final Map<String, MobileSupplierContactPerson> _contactStore;
 
   static const Set<String> _allowedProcurementRoles = {
     'BRANCH_MANAGER',
@@ -173,8 +228,10 @@ class MobileSupplierOrganizationClient {
     this.isOffline = false,
     Map<String, MobileSupplierOrganization>? initialSuppliers,
     List<MobileSupplierLedgerEntry>? initialLedger,
+    Map<String, MobileSupplierContactPerson>? initialContacts,
   })  : _supplierStore = initialSuppliers ?? {},
-        _ledgerStore = initialLedger ?? [];
+        _ledgerStore = initialLedger ?? [],
+        _contactStore = initialContacts ?? {};
 
   void _assertProcurementRole() {
     if (userRole.toUpperCase() == 'CASHIER' ||
@@ -263,6 +320,144 @@ class MobileSupplierOrganizationClient {
     return list;
   }
 
+  // =========================================================================
+  // SUPPLIER CONTACT PERSONS (P182)
+  // =========================================================================
+
+  MobileSupplierContactPerson createSupplierContact({
+    required String supplierId,
+    required String name,
+    String designation = '',
+    String role = 'SALES_REPRESENTATIVE',
+    required String phone,
+    String alternatePhone = '',
+    String email = '',
+    String preferredCommunicationMethod = 'PHONE',
+    bool isPrimary = false,
+    String notes = '',
+  }) {
+    _assertProcurementRole();
+    getSupplier(supplierId); // Assert tenant and supplier exist
+
+    final trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      throw ArgumentError(
+          'ERR_MISSING_CONTACT_NAME: Contact name must be at least 2 characters.');
+    }
+
+    final trimmedPhone = phone.trim();
+    if (trimmedPhone.isEmpty) {
+      throw ArgumentError(
+          'ERR_MISSING_CONTACT_PHONE: Contact phone number is required.');
+    }
+
+    if (isPrimary) {
+      for (final c in _contactStore.values) {
+        if (c.tenantId == tenantId &&
+            c.supplierId == supplierId &&
+            c.isPrimary) {
+          c.isPrimary = false;
+        }
+      }
+    }
+
+    final contactId =
+        'sup-cnt-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
+    final contact = MobileSupplierContactPerson(
+      contactId: contactId,
+      tenantId: tenantId,
+      supplierId: supplierId,
+      name: trimmedName,
+      designation: designation.trim(),
+      role: role.toUpperCase(),
+      phone: trimmedPhone,
+      alternatePhone: alternatePhone.trim(),
+      email: email.trim(),
+      preferredCommunicationMethod: preferredCommunicationMethod.toUpperCase(),
+      isPrimary: isPrimary,
+      isActive: true,
+      notes: notes.trim(),
+      createdAt: DateTime.now(),
+    );
+
+    _contactStore[contactId] = contact;
+    return contact;
+  }
+
+  MobileSupplierContactPerson getSupplierContact(String contactId) {
+    final c = _contactStore[contactId];
+    if (c == null) {
+      throw StateError('ERR_CONTACT_NOT_FOUND: Contact not found: $contactId');
+    }
+    if (c.tenantId != tenantId) {
+      throw StateError(
+          'ERR_CROSS_TENANT_ACCESS: Cross-tenant contact access forbidden.');
+    }
+    return c;
+  }
+
+  List<MobileSupplierContactPerson> listSupplierContacts(
+    String supplierId, {
+    String? role,
+  }) {
+    getSupplier(supplierId);
+    final list = _contactStore.values
+        .where((c) =>
+            c.tenantId == tenantId &&
+            c.supplierId == supplierId &&
+            (role == null || role.toUpperCase() == c.role.toUpperCase()))
+        .toList()
+      ..sort((a, b) {
+        if (a.isPrimary != b.isPrimary) {
+          return a.isPrimary ? -1 : 1;
+        }
+        return a.name.compareTo(b.name);
+      });
+    return list;
+  }
+
+  MobileSupplierContactPerson updateSupplierContact({
+    required String contactId,
+    String? phone,
+    String? role,
+    bool? setPrimary,
+  }) {
+    _assertProcurementRole();
+    final c = getSupplierContact(contactId);
+
+    if (phone != null) {
+      if (phone.trim().isEmpty) {
+        throw ArgumentError('ERR_MISSING_CONTACT_PHONE: Phone cannot be empty.');
+      }
+      c.phone = phone.trim();
+    }
+
+    if (role != null) {
+      c.role = role.toUpperCase();
+    }
+
+    if (setPrimary == true && !c.isPrimary) {
+      for (final other in _contactStore.values) {
+        if (other.tenantId == tenantId &&
+            other.supplierId == c.supplierId &&
+            other.isPrimary) {
+          other.isPrimary = false;
+        }
+      }
+      c.isPrimary = true;
+    }
+
+    return c;
+  }
+
+  MobileSupplierContactPerson archiveSupplierContact(String contactId) {
+    _assertProcurementRole();
+    final c = getSupplierContact(contactId);
+    c.isActive = false;
+    c.isPrimary = false;
+    return c;
+  }
+
   MobileSupplierLedgerEntry postApLedgerEntry({
     required String supplierId,
     required String postingType,
@@ -321,4 +516,3 @@ class MobileSupplierOrganizationClient {
     return supplier;
   }
 }
-
