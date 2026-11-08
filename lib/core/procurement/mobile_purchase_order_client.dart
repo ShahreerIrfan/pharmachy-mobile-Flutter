@@ -10,13 +10,22 @@ class MobilePurchaseOrderItem {
   final String productId;
   final String productName;
   final String packageType;
+  final String packUnit;
   final int packageSize;
+  final int orderedPackages;
   final int orderedQuantity;
   int receivedQuantity;
   final double unitCostPrice;
+  final double packageCostPrice;
+  final double mrpUnit;
   final double discountPercentage;
   final double netUnitCost;
+  final double taxPercentage;
+  final double taxAmount;
+  final double lineSubtotal;
   final double lineTotal;
+  final DateTime? expectedDeliveryDate;
+  final int freeGoodsBonusQuantity;
   final String notes;
 
   MobilePurchaseOrderItem({
@@ -24,22 +33,75 @@ class MobilePurchaseOrderItem {
     required this.productId,
     this.productName = '',
     this.packageType = 'BOX',
+    String? packUnit,
     this.packageSize = 1,
-    required this.orderedQuantity,
+    this.orderedPackages = 0,
+    int? orderedQuantity,
     this.receivedQuantity = 0,
     required this.unitCostPrice,
+    double? packageCostPrice,
+    this.mrpUnit = 0.0,
     this.discountPercentage = 0.0,
+    this.taxPercentage = 0.0,
     double? netUnitCost,
+    double? lineSubtotal,
+    double? taxAmount,
     double? lineTotal,
+    this.expectedDeliveryDate,
+    this.freeGoodsBonusQuantity = 0,
     this.notes = '',
-  })  : netUnitCost = netUnitCost ??
+  })  : packUnit = (packUnit != null && packUnit.trim().isNotEmpty)
+            ? packUnit.trim()
+            : packageType,
+        orderedQuantity = (orderedQuantity != null && orderedQuantity > 0)
+            ? orderedQuantity
+            : (orderedPackages > 0 ? orderedPackages * packageSize : 1),
+        packageCostPrice = packageCostPrice ??
+            double.parse((unitCostPrice * packageSize).toStringAsFixed(4)),
+        netUnitCost = netUnitCost ??
             double.parse((unitCostPrice * (1.0 - (discountPercentage / 100.0)))
                 .toStringAsFixed(4)),
-        lineTotal = lineTotal ??
+        lineSubtotal = lineSubtotal ??
             double.parse(((netUnitCost ??
                         (unitCostPrice *
                             (1.0 - (discountPercentage / 100.0)))) *
-                    orderedQuantity)
+                    ((orderedQuantity != null && orderedQuantity > 0)
+                        ? orderedQuantity
+                        : (orderedPackages > 0 ? orderedPackages * packageSize : 1)))
+                .toStringAsFixed(4)),
+        taxAmount = taxAmount ??
+            double.parse(((lineSubtotal ??
+                        ((netUnitCost ??
+                                (unitCostPrice *
+                                    (1.0 - (discountPercentage / 100.0)))) *
+                            ((orderedQuantity != null && orderedQuantity > 0)
+                                ? orderedQuantity
+                                : (orderedPackages > 0
+                                    ? orderedPackages * packageSize
+                                    : 1)))) *
+                    (taxPercentage / 100.0))
+                .toStringAsFixed(4)),
+        lineTotal = lineTotal ??
+            double.parse(((lineSubtotal ??
+                        ((netUnitCost ??
+                                (unitCostPrice *
+                                    (1.0 - (discountPercentage / 100.0)))) *
+                            ((orderedQuantity != null && orderedQuantity > 0)
+                                ? orderedQuantity
+                                : (orderedPackages > 0
+                                    ? orderedPackages * packageSize
+                                    : 1)))) +
+                    (taxAmount ??
+                        (((lineSubtotal ??
+                                    ((netUnitCost ??
+                                            (unitCostPrice *
+                                                (1.0 - (discountPercentage / 100.0)))) *
+                                        ((orderedQuantity != null && orderedQuantity > 0)
+                                            ? orderedQuantity
+                                            : (orderedPackages > 0
+                                                ? orderedPackages * packageSize
+                                                : 1)))) *
+                                (taxPercentage / 100.0)))))
                 .toStringAsFixed(4));
 
   Map<String, dynamic> toJson() => {
@@ -47,13 +109,23 @@ class MobilePurchaseOrderItem {
         'product_id': productId,
         'product_name': productName,
         'package_type': packageType,
+        'pack_unit': packUnit,
         'package_size': packageSize,
+        'ordered_packages': orderedPackages,
         'ordered_quantity': orderedQuantity,
         'received_quantity': receivedQuantity,
         'unit_cost_price': unitCostPrice.toStringAsFixed(4),
+        'package_cost_price': packageCostPrice.toStringAsFixed(4),
+        'mrp_unit': mrpUnit.toStringAsFixed(4),
         'discount_percentage': discountPercentage.toStringAsFixed(2),
         'net_unit_cost': netUnitCost.toStringAsFixed(4),
+        'tax_percentage': taxPercentage.toStringAsFixed(2),
+        'tax_amount': taxAmount.toStringAsFixed(4),
+        'line_subtotal': lineSubtotal.toStringAsFixed(4),
         'line_total': lineTotal.toStringAsFixed(4),
+        'expected_delivery_date':
+            expectedDeliveryDate?.toIso8601String().substring(0, 10),
+        'free_goods_bonus_quantity': freeGoodsBonusQuantity,
         'notes': notes,
       };
 }
@@ -439,6 +511,102 @@ class MobilePurchaseOrderClient {
 
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
+  }
+
+  void _validateLineItem(MobilePurchaseOrderItem item) {
+    if (item.productId.trim().isEmpty) {
+      throw ArgumentError('ERR_MISSING_PRODUCT_ID: Product ID cannot be empty');
+    }
+    if (item.orderedQuantity < 1) {
+      throw ArgumentError('ERR_INVALID_QUANTITY: Ordered quantity must be >= 1');
+    }
+    if (item.unitCostPrice <= 0.0) {
+      throw ArgumentError('ERR_INVALID_COST_PRICE: Unit cost price must be > 0');
+    }
+    if (item.discountPercentage < 0.0 || item.discountPercentage > 100.0) {
+      throw ArgumentError('ERR_INVALID_DISCOUNT: Discount percentage must be 0-100');
+    }
+    if (item.taxPercentage < 0.0 || item.taxPercentage > 100.0) {
+      throw ArgumentError('ERR_INVALID_TAX: Tax percentage must be 0-100');
+    }
+    if (item.mrpUnit > 0.0 && item.unitCostPrice > item.mrpUnit) {
+      throw ArgumentError(
+          'ERR_COST_EXCEEDS_MRP: Unit cost price (${item.unitCostPrice}) cannot exceed MRP (${item.mrpUnit})');
+    }
+  }
+
+  void _recalculatePoTotals(MobilePurchaseOrder po) {
+    double subtotal = 0.0;
+    double taxTotal = 0.0;
+    for (final itm in po.items) {
+      subtotal += itm.lineSubtotal;
+      taxTotal += itm.taxAmount;
+    }
+    po.subtotalAmount = double.parse(subtotal.toStringAsFixed(4));
+    po.taxAmount = double.parse(taxTotal.toStringAsFixed(4));
+    final net = (subtotal - po.discountAmount + taxTotal).clamp(0.0, double.infinity);
+    po.totalAmount = double.parse(net.toStringAsFixed(4));
+  }
+
+  List<MobilePurchaseOrderItem> listPoItems(String poId) {
+    final po = getPurchaseOrder(poId);
+    return List.unmodifiable(po.items);
+  }
+
+  MobilePurchaseOrder addPoItem({
+    required String poId,
+    required MobilePurchaseOrderItem item,
+  }) {
+    _assertProcurementRole();
+    final po = getPurchaseOrder(poId);
+    if (po.status != 'DRAFT') {
+      throw StateError('ERR_PO_LOCKED: Line items can only be added to DRAFT POs');
+    }
+    _validateLineItem(item);
+    po.items.add(item);
+    _recalculatePoTotals(po);
+    return po;
+  }
+
+  MobilePurchaseOrder updatePoItem({
+    required String poId,
+    required String itemId,
+    required MobilePurchaseOrderItem updatedItem,
+  }) {
+    _assertProcurementRole();
+    final po = getPurchaseOrder(poId);
+    if (po.status != 'DRAFT') {
+      throw StateError('ERR_PO_LOCKED: Line items can only be modified in DRAFT POs');
+    }
+    _validateLineItem(updatedItem);
+    final idx = po.items.indexWhere((i) => i.itemId == itemId);
+    if (idx == -1) {
+      throw ArgumentError('ERR_ITEM_NOT_FOUND: Item $itemId not found on PO');
+    }
+    po.items[idx] = updatedItem;
+    _recalculatePoTotals(po);
+    return po;
+  }
+
+  MobilePurchaseOrder deletePoItem({
+    required String poId,
+    required String itemId,
+  }) {
+    _assertProcurementRole();
+    final po = getPurchaseOrder(poId);
+    if (po.status != 'DRAFT') {
+      throw StateError('ERR_PO_LOCKED: Line items can only be deleted from DRAFT POs');
+    }
+    final idx = po.items.indexWhere((i) => i.itemId == itemId);
+    if (idx == -1) {
+      throw ArgumentError('ERR_ITEM_NOT_FOUND: Item $itemId not found on PO');
+    }
+    if (po.items.length <= 1) {
+      throw StateError('ERR_CANNOT_DELETE_LAST_ITEM: PO must retain at least one item');
+    }
+    po.items.removeAt(idx);
+    _recalculatePoTotals(po);
+    return po;
   }
 }
 
