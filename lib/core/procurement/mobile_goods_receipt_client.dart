@@ -26,6 +26,9 @@ class MobileGoodsReceiptLine {
   final double taxPercentage;
   final double lineTotal;
   final String storageLocation;
+  final bool isBonusGoods;
+  final int excessQuantity;
+  final String excessReason;
   bool isFullyAllocated;
 
   MobileGoodsReceiptLine({
@@ -41,12 +44,15 @@ class MobileGoodsReceiptLine {
     int receivedPackages = 0,
     int orderedQuantityBaseUnits = 0,
     int? receivedQuantityBaseUnits,
-    required this.unitCost,
+    required double unitCost,
     this.mrpUnit = 0.0,
-    this.discountPercentage = 0.0,
-    this.taxPercentage = 0.0,
+    double discountPercentage = 0.0,
+    double taxPercentage = 0.0,
     double? lineTotal,
     this.storageLocation = 'MAIN_RACK',
+    this.isBonusGoods = false,
+    this.excessQuantity = 0,
+    this.excessReason = '',
     this.isFullyAllocated = false,
   })  : lineId = lineId ??
             'grnl-${DateTime.now().microsecondsSinceEpoch.toString().substring(7)}',
@@ -60,18 +66,23 @@ class MobileGoodsReceiptLine {
             : (receivedPackages > 0
                 ? receivedPackages * (packageSize < 1 ? 1 : packageSize)
                 : 1),
-        lineTotal = lineTotal ??
-            _calculateLineTotal(
-              receivedUnits: (receivedQuantityBaseUnits != null &&
-                      receivedQuantityBaseUnits > 0)
-                  ? receivedQuantityBaseUnits
-                  : (receivedPackages > 0
-                      ? receivedPackages * (packageSize < 1 ? 1 : packageSize)
-                      : 1),
-              unitCost: unitCost,
-              discountPercentage: discountPercentage,
-              taxPercentage: taxPercentage,
-            );
+        unitCost = isBonusGoods ? 0.0 : unitCost,
+        discountPercentage = isBonusGoods ? 0.0 : discountPercentage,
+        taxPercentage = isBonusGoods ? 0.0 : taxPercentage,
+        lineTotal = isBonusGoods
+            ? 0.0
+            : (lineTotal ??
+                _calculateLineTotal(
+                  receivedUnits: (receivedQuantityBaseUnits != null &&
+                          receivedQuantityBaseUnits > 0)
+                      ? receivedQuantityBaseUnits
+                      : (receivedPackages > 0
+                          ? receivedPackages * (packageSize < 1 ? 1 : packageSize)
+                          : 1),
+                  unitCost: unitCost,
+                  discountPercentage: discountPercentage,
+                  taxPercentage: taxPercentage,
+                ));
 
   static double _calculateLineTotal({
     required int receivedUnits,
@@ -105,6 +116,9 @@ class MobileGoodsReceiptLine {
         'tax_percentage': taxPercentage.toStringAsFixed(2),
         'line_total': lineTotal.toStringAsFixed(4),
         'storage_location': storageLocation,
+        'is_bonus_goods': isBonusGoods,
+        'excess_quantity': excessQuantity,
+        'excess_reason': excessReason,
         'is_fully_allocated': isFullyAllocated,
       };
 
@@ -133,6 +147,9 @@ class MobileGoodsReceiptLine {
       lineTotal:
           double.tryParse(json['line_total']?.toString() ?? '0') ?? 0.0,
       storageLocation: json['storage_location']?.toString() ?? 'MAIN_RACK',
+      isBonusGoods: json['is_bonus_goods'] == true,
+      excessQuantity: (json['excess_quantity'] as num?)?.toInt() ?? 0,
+      excessReason: json['excess_reason']?.toString() ?? '',
       isFullyAllocated: json['is_fully_allocated'] == true,
     );
   }
@@ -312,6 +329,8 @@ class MobileGoodsReceiptClient {
     bool storageCheckPassed = true,
     String proofOfOrigin = '',
     String notes = '',
+    bool allowExcess = false,
+    String excessReason = '',
     required List<MobileGoodsReceiptLine> lines,
   }) {
     _assertProcurementRole();
@@ -373,10 +392,10 @@ class MobileGoodsReceiptClient {
         throw ArgumentError(
             'ERR_EXPIRED_BATCH_RECEIVED: Batch ${line.batchNumber} is expired');
       }
-      if (line.unitCost <= 0.0) {
+      if (!line.isBonusGoods && line.unitCost <= 0.0) {
         throw ArgumentError('ERR_INVALID_COST: Unit cost must be positive');
       }
-      if (line.mrpUnit > 0.0 && line.unitCost > line.mrpUnit) {
+      if (!line.isBonusGoods && line.mrpUnit > 0.0 && line.unitCost > line.mrpUnit) {
         throw ArgumentError(
             'ERR_COST_EXCEEDS_MRP: Unit cost cannot exceed retail price');
       }
@@ -391,10 +410,25 @@ class MobileGoodsReceiptClient {
           }
         }
         if (poItem != null) {
-          final remaining = poItem.orderedQuantity - poItem.receivedQuantity;
+          final remaining = poItem.backorderedQuantity;
           if (line.receivedQuantityBaseUnits > remaining) {
-            throw ArgumentError(
-                'ERR_EXCESS_RECEIPT: Received quantity (${line.receivedQuantityBaseUnits}) exceeds remaining unreceived quantity ($remaining) on PO item');
+            if (line.isBonusGoods) {
+              // Bonus promotional goods permitted
+            } else if (allowExcess) {
+              if (userRole != 'BRANCH_MANAGER' &&
+                  userRole != 'PHARMACY_OWNER' &&
+                  userRole != 'SUPERADMIN') {
+                throw StateError(
+                    'ERR_STAFF_ROLE_DENIED: Only Managers and Owners can authorize excess delivery');
+              }
+              if (excessReason.trim().isEmpty) {
+                throw ArgumentError(
+                    'ERR_MISSING_EXCESS_REASON: Managerial excess reason is required');
+              }
+            } else {
+              throw ArgumentError(
+                  'ERR_EXCESS_RECEIPT: Received quantity (${line.receivedQuantityBaseUnits}) exceeds remaining unreceived quantity ($remaining) on PO item');
+            }
           }
         }
       }
@@ -562,5 +596,24 @@ class MobileGoodsReceiptClient {
     }
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
+  }
+
+  MobilePurchaseOrder cancelPoBackorder({
+    required String poId,
+    required String itemId,
+    required int cancelQuantity,
+    required String reason,
+  }) {
+    _assertProcurementRole();
+    if (poClient == null) {
+      throw StateError(
+          'ERR_PO_CLIENT_NOT_CONFIGURED: PO client required to cancel backorders');
+    }
+    return poClient!.cancelBackorder(
+      poId: poId,
+      itemId: itemId,
+      cancelQuantity: cancelQuantity,
+      reason: reason,
+    );
   }
 }

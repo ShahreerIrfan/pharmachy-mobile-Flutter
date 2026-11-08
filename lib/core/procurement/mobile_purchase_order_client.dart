@@ -15,6 +15,8 @@ class MobilePurchaseOrderItem {
   final int orderedPackages;
   final int orderedQuantity;
   int receivedQuantity;
+  int cancelledQuantity;
+  String deliveryStatus;
   final double unitCostPrice;
   final double packageCostPrice;
   final double mrpUnit;
@@ -38,6 +40,8 @@ class MobilePurchaseOrderItem {
     this.orderedPackages = 0,
     int? orderedQuantity,
     this.receivedQuantity = 0,
+    this.cancelledQuantity = 0,
+    String? deliveryStatus,
     required this.unitCostPrice,
     double? packageCostPrice,
     this.mrpUnit = 0.0,
@@ -50,7 +54,15 @@ class MobilePurchaseOrderItem {
     this.expectedDeliveryDate,
     this.freeGoodsBonusQuantity = 0,
     this.notes = '',
-  })  : packUnit = (packUnit != null && packUnit.trim().isNotEmpty)
+  })  : deliveryStatus = (deliveryStatus != null && deliveryStatus.trim().isNotEmpty)
+            ? deliveryStatus.trim()
+            : ((receivedQuantity + (cancelledQuantity)) >=
+                    ((orderedQuantity != null && orderedQuantity > 0)
+                        ? orderedQuantity
+                        : (orderedPackages > 0 ? orderedPackages * packageSize : 1))
+                ? (receivedQuantity > 0 ? 'FULLY_DELIVERED' : 'CANCELLED')
+                : (receivedQuantity > 0 ? 'PARTIALLY_DELIVERED' : 'PENDING')),
+        packUnit = (packUnit != null && packUnit.trim().isNotEmpty)
             ? packUnit.trim()
             : packageType,
         orderedQuantity = (orderedQuantity != null && orderedQuantity > 0)
@@ -104,6 +116,11 @@ class MobilePurchaseOrderItem {
                                 (taxPercentage / 100.0)))))
                 .toStringAsFixed(4));
 
+  int get backorderedQuantity =>
+      (orderedQuantity - receivedQuantity - cancelledQuantity).clamp(0, orderedQuantity);
+
+  bool get isBackordered => backorderedQuantity > 0 && receivedQuantity > 0;
+
   Map<String, dynamic> toJson() => {
         'item_id': itemId,
         'product_id': productId,
@@ -114,6 +131,9 @@ class MobilePurchaseOrderItem {
         'ordered_packages': orderedPackages,
         'ordered_quantity': orderedQuantity,
         'received_quantity': receivedQuantity,
+        'cancelled_quantity': cancelledQuantity,
+        'backordered_quantity': backorderedQuantity,
+        'delivery_status': deliveryStatus,
         'unit_cost_price': unitCostPrice.toStringAsFixed(4),
         'package_cost_price': packageCostPrice.toStringAsFixed(4),
         'mrp_unit': mrpUnit.toStringAsFixed(4),
@@ -405,6 +425,11 @@ class MobilePurchaseOrderClient {
         final addQty = itemReceipts[itm.itemId]!;
         if (addQty > 0) {
           itm.receivedQuantity += addQty;
+          if ((itm.receivedQuantity + itm.cancelledQuantity) >= itm.orderedQuantity) {
+            itm.deliveryStatus = 'FULLY_DELIVERED';
+          } else if (itm.receivedQuantity > 0) {
+            itm.deliveryStatus = 'PARTIALLY_DELIVERED';
+          }
         }
       }
     }
@@ -412,7 +437,7 @@ class MobilePurchaseOrderClient {
     bool allFulfilled = true;
     bool anyReceived = false;
     for (final itm in existing.items) {
-      if (itm.receivedQuantity < itm.orderedQuantity) {
+      if ((itm.receivedQuantity + itm.cancelledQuantity) < itm.orderedQuantity) {
         allFulfilled = false;
       }
       if (itm.receivedQuantity > 0) {
@@ -423,9 +448,74 @@ class MobilePurchaseOrderClient {
     if (allFulfilled) {
       existing.status = 'CLOSED';
       existing.closedAt = DateTime.now();
-      existing.closingNotes = 'All line items fully received';
+      existing.closingNotes = 'All line items fully received or resolved';
     } else if (anyReceived) {
       existing.status = 'PARTIALLY_RECEIVED';
+    }
+
+    return existing;
+  }
+
+  MobilePurchaseOrder cancelBackorder({
+    required String poId,
+    required String itemId,
+    required int cancelQuantity,
+    required String reason,
+  }) {
+    _assertApprovalRole();
+
+    final existing = _poStore[poId];
+    if (existing == null) {
+      throw ArgumentError('ERR_PO_NOT_FOUND: Purchase order $poId not found');
+    }
+    if (existing.tenantId != tenantId) {
+      throw StateError('ERR_CROSS_TENANT_ACCESS: Cross-tenant PO backorder cancellation forbidden');
+    }
+    if (existing.status != 'ORDERED' && existing.status != 'PARTIALLY_RECEIVED') {
+      throw StateError(
+          'ERR_INVALID_STATE_TRANSITION: PO must be ORDERED or PARTIALLY_RECEIVED to cancel backorder');
+    }
+
+    MobilePurchaseOrderItem? targetItem;
+    for (final itm in existing.items) {
+      if (itm.itemId == itemId) {
+        targetItem = itm;
+        break;
+      }
+    }
+    if (targetItem == null) {
+      throw ArgumentError('ERR_PO_ITEM_NOT_FOUND: PO item $itemId not found');
+    }
+
+    final currentBackorder = targetItem.backorderedQuantity;
+    if (cancelQuantity <= 0 || cancelQuantity > currentBackorder) {
+      throw ArgumentError(
+          'ERR_INVALID_CANCEL_QUANTITY: Cannot cancel $cancelQuantity; backordered is $currentBackorder');
+    }
+    if (reason.trim().isEmpty) {
+      throw ArgumentError('ERR_MISSING_CANCEL_REASON: Cancellation reason is required');
+    }
+
+    targetItem.cancelledQuantity += cancelQuantity;
+    if ((targetItem.receivedQuantity + targetItem.cancelledQuantity) >= targetItem.orderedQuantity) {
+      targetItem.deliveryStatus =
+          targetItem.receivedQuantity > 0 ? 'FULLY_DELIVERED' : 'CANCELLED';
+    } else {
+      targetItem.deliveryStatus = 'PARTIALLY_DELIVERED';
+    }
+
+    bool allFulfilled = true;
+    for (final itm in existing.items) {
+      if ((itm.receivedQuantity + itm.cancelledQuantity) < itm.orderedQuantity) {
+        allFulfilled = false;
+        break;
+      }
+    }
+
+    if (allFulfilled) {
+      existing.status = 'CLOSED';
+      existing.closedAt = DateTime.now();
+      existing.closingNotes = 'Closed after backorder cancellation: ${reason.trim()}';
     }
 
     return existing;
