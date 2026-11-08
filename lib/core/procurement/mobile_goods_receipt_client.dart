@@ -1,11 +1,137 @@
 // mobile_goods_receipt_client.dart
-// Architecture Decision: ADR-0187 (P187).
+// Architecture Decision: ADR-0187 (P187) & ADR-0189 (P189).
 // Phase 10: Suppliers, Purchase Orders & Supply Chain.
 //
 // Flutter mobile client governing Goods Receipt Notes (GRN), PO line matching,
 // cold-chain temperature verification, idempotent stock posting, and reversal safety.
 
 import 'mobile_purchase_order_client.dart';
+
+class MobileColdChainEvidence {
+  final String evidenceId;
+  final String grnId;
+  final String lineId;
+  final String productId;
+  final String batchNumber;
+  final String loggerSerialNumber;
+  final double recordedTemperatureCelsius;
+  final double? minTemperatureCelsius;
+  final double? maxTemperatureCelsius;
+  final bool excursionDetected;
+  final int excursionDurationMinutes;
+  final String packagingCondition;
+  final String carrierName;
+  final String vehicleType;
+  final String proofAttachmentReference;
+  final String inspectionNotes;
+  String quarantineStatus;
+  final String quarantineReason;
+  String? reviewedById;
+  DateTime? reviewedAt;
+  String reviewNotes;
+  String resolutionAction;
+  final DateTime createdAt;
+
+  MobileColdChainEvidence({
+    String? evidenceId,
+    this.grnId = '',
+    this.lineId = '',
+    this.productId = '',
+    this.batchNumber = '',
+    this.loggerSerialNumber = '',
+    required this.recordedTemperatureCelsius,
+    this.minTemperatureCelsius,
+    this.maxTemperatureCelsius,
+    this.excursionDetected = false,
+    this.excursionDurationMinutes = 0,
+    this.packagingCondition = 'INTACT_SEALED',
+    this.carrierName = '',
+    this.vehicleType = 'REFRIGERATED_VAN',
+    this.proofAttachmentReference = '',
+    this.inspectionNotes = '',
+    String? quarantineStatus,
+    this.quarantineReason = '',
+    this.reviewedById,
+    this.reviewedAt,
+    this.reviewNotes = '',
+    this.resolutionAction = '',
+    DateTime? createdAt,
+  })  : evidenceId = evidenceId ??
+            'cce-${DateTime.now().microsecondsSinceEpoch.toString().substring(7)}',
+        quarantineStatus = quarantineStatus ??
+            (excursionDetected ? 'PENDING_REVIEW' : 'NOT_QUARANTINED'),
+        createdAt = createdAt ?? DateTime.now();
+
+  Map<String, dynamic> toJson() => {
+        'evidence_id': evidenceId,
+        'grn_id': grnId,
+        'line_id': lineId,
+        'product_id': productId,
+        'batch_number': batchNumber,
+        'logger_serial_number': loggerSerialNumber,
+        'recorded_temperature_celsius':
+            recordedTemperatureCelsius.toStringAsFixed(2),
+        'min_temperature_celsius':
+            minTemperatureCelsius?.toStringAsFixed(2),
+        'max_temperature_celsius':
+            maxTemperatureCelsius?.toStringAsFixed(2),
+        'excursion_detected': excursionDetected,
+        'excursion_duration_minutes': excursionDurationMinutes,
+        'packaging_condition': packagingCondition,
+        'carrier_name': carrierName,
+        'vehicle_type': vehicleType,
+        'proof_attachment_reference': proofAttachmentReference,
+        'inspection_notes': inspectionNotes,
+        'quarantine_status': quarantineStatus,
+        'quarantine_reason': quarantineReason,
+        'reviewed_by_id': reviewedById,
+        'reviewed_at': reviewedAt?.toIso8601String(),
+        'review_notes': reviewNotes,
+        'resolution_action': resolutionAction,
+        'created_at': createdAt.toIso8601String(),
+      };
+
+  factory MobileColdChainEvidence.fromJson(Map<String, dynamic> json) {
+    return MobileColdChainEvidence(
+      evidenceId: json['evidence_id']?.toString(),
+      grnId: json['grn_id']?.toString() ?? '',
+      lineId: json['line_id']?.toString() ?? '',
+      productId: json['product_id']?.toString() ?? '',
+      batchNumber: json['batch_number']?.toString() ?? '',
+      loggerSerialNumber: json['logger_serial_number']?.toString() ?? '',
+      recordedTemperatureCelsius: double.tryParse(
+              json['recorded_temperature_celsius']?.toString() ?? '0') ??
+          0.0,
+      minTemperatureCelsius: json['min_temperature_celsius'] != null
+          ? double.tryParse(json['min_temperature_celsius'].toString())
+          : null,
+      maxTemperatureCelsius: json['max_temperature_celsius'] != null
+          ? double.tryParse(json['max_temperature_celsius'].toString())
+          : null,
+      excursionDetected: json['excursion_detected'] == true,
+      excursionDurationMinutes:
+          (json['excursion_duration_minutes'] as num?)?.toInt() ?? 0,
+      packagingCondition:
+          json['packaging_condition']?.toString() ?? 'INTACT_SEALED',
+      carrierName: json['carrier_name']?.toString() ?? '',
+      vehicleType: json['vehicle_type']?.toString() ?? 'REFRIGERATED_VAN',
+      proofAttachmentReference:
+          json['proof_attachment_reference']?.toString() ?? '',
+      inspectionNotes: json['inspection_notes']?.toString() ?? '',
+      quarantineStatus: json['quarantine_status']?.toString(),
+      quarantineReason: json['quarantine_reason']?.toString() ?? '',
+      reviewedById: json['reviewed_by_id']?.toString(),
+      reviewedAt: json['reviewed_at'] != null
+          ? DateTime.parse(json['reviewed_at'])
+          : null,
+      reviewNotes: json['review_notes']?.toString() ?? '',
+      resolutionAction: json['resolution_action']?.toString() ?? '',
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : null,
+    );
+  }
+}
 
 class MobileGoodsReceiptLine {
   final String lineId;
@@ -29,6 +155,8 @@ class MobileGoodsReceiptLine {
   final bool isBonusGoods;
   final int excessQuantity;
   final String excessReason;
+  bool isQuarantined;
+  MobileColdChainEvidence? coldChainEvidence;
   bool isFullyAllocated;
 
   MobileGoodsReceiptLine({
@@ -53,6 +181,8 @@ class MobileGoodsReceiptLine {
     this.isBonusGoods = false,
     this.excessQuantity = 0,
     this.excessReason = '',
+    this.isQuarantined = false,
+    this.coldChainEvidence,
     this.isFullyAllocated = false,
   })  : lineId = lineId ??
             'grnl-${DateTime.now().microsecondsSinceEpoch.toString().substring(7)}',
@@ -119,6 +249,8 @@ class MobileGoodsReceiptLine {
         'is_bonus_goods': isBonusGoods,
         'excess_quantity': excessQuantity,
         'excess_reason': excessReason,
+        'is_quarantined': isQuarantined,
+        'cold_chain_evidence': coldChainEvidence?.toJson(),
         'is_fully_allocated': isFullyAllocated,
       };
 
@@ -150,6 +282,11 @@ class MobileGoodsReceiptLine {
       isBonusGoods: json['is_bonus_goods'] == true,
       excessQuantity: (json['excess_quantity'] as num?)?.toInt() ?? 0,
       excessReason: json['excess_reason']?.toString() ?? '',
+      isQuarantined: json['is_quarantined'] == true,
+      coldChainEvidence: json['cold_chain_evidence'] != null
+          ? MobileColdChainEvidence.fromJson(
+              json['cold_chain_evidence'] as Map<String, dynamic>)
+          : null,
       isFullyAllocated: json['is_fully_allocated'] == true,
     );
   }
@@ -179,6 +316,7 @@ class MobileGoodsReceipt {
   String notes;
   bool isActive;
   final List<MobileGoodsReceiptLine> lines;
+  final List<MobileColdChainEvidence> coldChainEvidences;
   final DateTime createdAt;
 
   MobileGoodsReceipt({
@@ -205,8 +343,10 @@ class MobileGoodsReceipt {
     this.notes = '',
     this.isActive = true,
     required this.lines,
+    List<MobileColdChainEvidence>? coldChainEvidences,
     DateTime? createdAt,
-  })  : receiptDate = receiptDate ?? DateTime.now(),
+  })  : coldChainEvidences = coldChainEvidences ?? [],
+        receiptDate = receiptDate ?? DateTime.now(),
         createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toJson() => {
@@ -233,6 +373,8 @@ class MobileGoodsReceipt {
         'notes': notes,
         'is_active': isActive,
         'lines': lines.map((l) => l.toJson()).toList(),
+        'cold_chain_evidences':
+            coldChainEvidences.map((e) => e.toJson()).toList(),
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -272,6 +414,11 @@ class MobileGoodsReceipt {
       lines: (json['lines'] as List<dynamic>?)
               ?.map((item) =>
                   MobileGoodsReceiptLine.fromJson(item as Map<String, dynamic>))
+              .toList() ??
+          [],
+      coldChainEvidences: (json['cold_chain_evidences'] as List<dynamic>?)
+              ?.map((item) => MobileColdChainEvidence.fromJson(
+                  item as Map<String, dynamic>))
               .toList() ??
           [],
       createdAt: json['created_at'] != null
@@ -331,6 +478,8 @@ class MobileGoodsReceiptClient {
     String notes = '',
     bool allowExcess = false,
     String excessReason = '',
+    bool quarantineSuspicious = false,
+    MobileColdChainEvidence? coldChainEvidence,
     required List<MobileGoodsReceiptLine> lines,
   }) {
     _assertProcurementRole();
@@ -358,19 +507,29 @@ class MobileGoodsReceiptClient {
 
     // Cold-Chain & Storage Inspection Checks
     final cond = storageCondition.toUpperCase();
-    if (cond.contains('COLD_CHAIN')) {
-      if (!storageCheckPassed) {
-        throw StateError(
-            'ERR_STORAGE_CHECK_FAILED: Cold-chain physical inspection failed');
-      }
-      if (storageTemperatureCelsius != null) {
-        if (storageTemperatureCelsius < 2.0 || storageTemperatureCelsius > 8.0) {
+    final isColdChain =
+        cond.contains('COLD_CHAIN') || coldChainEvidence != null;
+    final hasTempViolation = isColdChain &&
+        storageTemperatureCelsius != null &&
+        (storageTemperatureCelsius < 2.0 || storageTemperatureCelsius > 8.0);
+    final isSuspicious = !storageCheckPassed ||
+        hasTempViolation ||
+        (coldChainEvidence != null &&
+            (coldChainEvidence.excursionDetected ||
+                coldChainEvidence.packagingCondition != 'INTACT_SEALED'));
+
+    if (isSuspicious) {
+      if (quarantineSuspicious) {
+        // Quarantined path accepted
+      } else {
+        if (hasTempViolation) {
           throw StateError(
               'ERR_STORAGE_CHECK_FAILED: Cold-chain temperature violation ($storageTemperatureCelsius C). Accepted: 2-8 C');
+        } else {
+          throw StateError(
+              'ERR_STORAGE_CHECK_FAILED: ${isColdChain ? "Cold-chain physical inspection failed" : "Storage inspection check failed"}');
         }
       }
-    } else if (!storageCheckPassed) {
-      throw StateError('ERR_STORAGE_CHECK_FAILED: Storage inspection check failed');
     }
 
     final now = DateTime.now();
@@ -433,6 +592,10 @@ class MobileGoodsReceiptClient {
         }
       }
 
+      if (isSuspicious && quarantineSuspicious) {
+        line.isQuarantined = true;
+      }
+
       totalUnits += line.receivedQuantityBaseUnits;
       totalAmount += line.lineTotal;
     }
@@ -441,6 +604,32 @@ class MobileGoodsReceiptClient {
         'grn-${DateTime.now().microsecondsSinceEpoch.toString().substring(4)}';
     final grnNumber =
         'GRN-${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}-${grnId.substring(4, 10).toUpperCase()}';
+
+    final evidences = <MobileColdChainEvidence>[];
+    if (isColdChain) {
+      for (final line in lines) {
+        final ev = coldChainEvidence ??
+            MobileColdChainEvidence(
+              grnId: grnId,
+              lineId: line.lineId,
+              productId: line.productId,
+              batchNumber: line.batchNumber,
+              recordedTemperatureCelsius: storageTemperatureCelsius ?? 4.0,
+              excursionDetected: line.isQuarantined,
+              packagingCondition:
+                  storageCheckPassed ? 'INTACT_SEALED' : 'ICE_PACKS_MELTED',
+              proofAttachmentReference: proofOfOrigin,
+              inspectionNotes: notes,
+              quarantineStatus:
+                  line.isQuarantined ? 'PENDING_REVIEW' : 'NOT_QUARANTINED',
+              quarantineReason: line.isQuarantined
+                  ? 'Cold-chain anomaly detected during inspection'
+                  : '',
+            );
+        line.coldChainEvidence = ev;
+        evidences.add(ev);
+      }
+    }
 
     final grn = MobileGoodsReceipt(
       grnId: grnId,
@@ -467,6 +656,7 @@ class MobileGoodsReceiptClient {
       notes: notes,
       isActive: true,
       lines: lines,
+      coldChainEvidences: evidences,
       createdAt: DateTime.now(),
     );
 
@@ -615,5 +805,97 @@ class MobileGoodsReceiptClient {
       cancelQuantity: cancelQuantity,
       reason: reason,
     );
+  }
+
+  MobileColdChainEvidence resolveQuarantine({
+    required String grnId,
+    required String evidenceId,
+    required String resolutionAction,
+    required String justification,
+    String notes = '',
+  }) {
+    _assertProcurementRole();
+    if (userRole != 'BRANCH_MANAGER' &&
+        userRole != 'PHARMACY_OWNER' &&
+        userRole != 'SUPERADMIN' &&
+        userRole != 'STAFF_PHARMACIST') {
+      throw StateError(
+          'ERR_STAFF_ROLE_DENIED: Only Managers and Registered Pharmacists can resolve cold-chain quarantine');
+    }
+    final grn = _grnStore[grnId];
+    if (grn == null) {
+      throw ArgumentError('ERR_GRN_NOT_FOUND: Goods receipt $grnId not found');
+    }
+    if (grn.tenantId != tenantId) {
+      throw StateError(
+          'ERR_CROSS_TENANT_ACCESS: Cross-tenant quarantine resolution forbidden');
+    }
+
+    MobileColdChainEvidence? evidence;
+    for (final e in grn.coldChainEvidences) {
+      if (e.evidenceId == evidenceId) {
+        evidence = e;
+        break;
+      }
+    }
+    if (evidence == null) {
+      throw ArgumentError(
+          'ERR_EVIDENCE_NOT_FOUND: Evidence $evidenceId not found');
+    }
+    if (evidence.quarantineStatus != 'PENDING_REVIEW') {
+      throw StateError(
+          'ERR_ALREADY_RESOLVED: Evidence is already resolved: ${evidence.quarantineStatus}');
+    }
+    if (justification.trim().isEmpty) {
+      throw ArgumentError(
+          'ERR_MISSING_JUSTIFICATION: Justification is required');
+    }
+    final act = resolutionAction.trim().toUpperCase();
+    if (act != 'APPROVE_RELEASE' &&
+        act != 'REJECT_RETURN' &&
+        act != 'DISPOSE_DESTROY') {
+      throw ArgumentError(
+          'ERR_INVALID_RESOLUTION_ACTION: Action must be APPROVE_RELEASE, REJECT_RETURN, or DISPOSE_DESTROY');
+    }
+
+    evidence.resolutionAction = act;
+    evidence.reviewNotes = justification.trim();
+    evidence.reviewedById = userId;
+    evidence.reviewedAt = DateTime.now();
+
+    // Find matching line in GRN
+    MobileGoodsReceiptLine? targetLine;
+    for (final line in grn.lines) {
+      if (line.batchNumber == evidence.batchNumber) {
+        targetLine = line;
+        break;
+      }
+    }
+
+    if (act == 'APPROVE_RELEASE') {
+      evidence.quarantineStatus = 'RELEASED';
+      if (targetLine != null) {
+        targetLine.isQuarantined = false;
+      }
+    } else if (act == 'REJECT_RETURN') {
+      evidence.quarantineStatus = 'RETURNED_TO_SUPPLIER';
+      if (targetLine != null) {
+        targetLine.isQuarantined = false;
+        if (grn.apPostingStatus == 'POSTED') {
+          grn.apInvoiceAmount = (grn.apInvoiceAmount - targetLine.lineTotal) < 0
+              ? 0.0
+              : double.parse((grn.apInvoiceAmount - targetLine.lineTotal)
+                  .toStringAsFixed(4));
+        }
+      }
+    } else {
+      // DISPOSE_DESTROY
+      evidence.quarantineStatus = 'DISPOSED';
+      if (targetLine != null) {
+        targetLine.isQuarantined = false;
+      }
+    }
+
+    return evidence;
   }
 }
